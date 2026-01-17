@@ -1,17 +1,20 @@
 [project]
 name = "google-adk-framework"
-version = "0.1.0"
-description = "Google ADK Framework for agent-based task execution"
+version = "0.2.0"
+description = "Agent-for-Agents Platform with LangGraph + Google ADK + Bosch Use Cases"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "google-genai>=0.4.0",
-    "chroma-hnswlib>=0.5.0",
+    "chromadb>=0.5.0",
     "python-dotenv>=1.0.0",
     "beautifulsoup4>=4.12.0",
     "requests>=2.32.0",
     "streamlit>=1.30.0",
     "pandas>=2.0.0",
+    "pydantic>=2.0.0",
+    "langgraph>=0.0.1",
+    "langchain>=0.1.0",
 ]
 
 [project.scripts]

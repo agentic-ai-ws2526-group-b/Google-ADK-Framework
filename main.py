@@ -1,13 +1,19 @@
 """
-Agentic AI Framework Advisor - CLI mit Menü und geführter Beratung
-Ein Command-Line Interface für intelligente Framework-Empfehlungen.
+CLI Interface für Framework Advisor
+Nutzt LangGraph Flow für Orchestrierung.
+
+Starten mit:
+  python main.py                    # Menü
+  streamlit run streamlit_app.py    # Web UI
 """
 
-from my_agent.agent import FrameworkAdvisorAgent, FrameworkMatch, FrameworkMultiScore, format_multi_score_report
+from orchestrator.langgraph_flow import run_advisor_flow, print_flow_architecture
+from memory.feedback_store import FeedbackStore, SessionFeedback
+from adk_adapter import print_adk_agent_definitions
 
 
 # ============================================================================
-# Hilfsfunktionen
+# Helper Functions
 # ============================================================================
 
 def print_header(title: str) -> None:
@@ -17,74 +23,77 @@ def print_header(title: str) -> None:
     print("=" * 70)
 
 
-def print_recommendation(match: FrameworkMatch) -> None:
-    """Druckt eine schöne Haupt-Empfehlung."""
+def print_recommendation(state) -> None:
+    """Druckt die Empfehlung schön formatiert."""
+    if not state.recommendation:
+        print("\n❌ Keine Empfehlung generiert.")
+        return
+
+    rec = state.recommendation
+
     print("\n" + "-" * 70)
     print("✨ HAUPT-EMPFEHLUNG")
     print("-" * 70)
-    print(f"Framework: {match.name}")
-    print(f"Score: {match.score:.2f}")
+    print(f"Framework: {rec.recommended_framework}")
+    print(f"Score: {rec.recommended_score:.2f}")
     print()
     print("Begründung:")
-    print(match.reason)
+    print(rec.reasoning_summary)
     print()
 
-    # Quellen anzeigen (falls vorhanden)
-    if match.sources:
-        print("-" * 70)
-        print("📚 Genutzte Wissens-Snippets")
-        print("-" * 70)
-        for i, source in enumerate(match.sources, 1):
-            framework = source.get("framework", "N/A")
-            doc_preview = source.get("document", "N/A")
-
-            # Kurze Vorschau (erste 100 Zeichen)
-            if len(doc_preview) > 100:
-                doc_preview = doc_preview[:100] + "..."
-
-            print(f"{i}. {framework}")
-            print(f"   → {doc_preview}")
-            print()
-
-
-def print_multi_criteria_summary(multi_scores: list[FrameworkMultiScore]) -> None:
-    """Druckt eine Zusammenfassung der Multi-Kriterien-Bewertung."""
-    if not multi_scores:
-        print("⚠ Keine Multi-Kriterien-Bewertung verfügbar.")
-        return
-
-    print("\n" + "-" * 70)
-    print("📊 DETAILLIERTE MULTI-KRITERIEN-BEWERTUNG")
     print("-" * 70)
+    print("🏆 TOP 3 ALTERNATIVEN")
+    print("-" * 70)
+    for i, candidate in enumerate(rec.top_3, 1):
+        print(f"{i}. {candidate.framework_name} ({candidate.score:.2f})")
+        print(f"   → {candidate.reason[:100]}...")
+        print()
 
-    criteria_labels = {
-        "ease_of_use": "Benutzerfreundlichkeit",
-        "community": "Community & Support",
-        "performance": "Performance",
-        "learning_curve": "Lernkurve",
-        "flexibility": "Flexibilität",
-        "enterprise_ready": "Enterprise-Readiness"
-    }
+    if rec.matched_bosch_usecases:
+        print("-" * 70)
+        print("🔗 GEMATCHTЕ BOSCH USE CASES")
+        print("-" * 70)
+        for uc in rec.matched_bosch_usecases[:3]:
+            print(f"• {uc.usecase_title}")
+            print(f"  Category: {uc.category} | Match: {uc.match_score:.2f}")
+        print()
 
-    for i, score in enumerate(multi_scores, 1):
-        print(f"\n{i}. {score.name}")
-        print(f"   Overall Score: {score.overall_score:.2f} / 1.00")
-        print("\n   Bewertung nach Kriterien:")
+    if rec.architecture_suggestion:
+        print("-" * 70)
+        print("🏗️ ARCHITEKTUR VORSCHLAG")
+        print("-" * 70)
+        arch = rec.architecture_suggestion
+        print(f"Type: {arch.agent_type}")
+        print(f"RAG Required: {arch.requires_rag}")
+        print(f"Tools/Connectors: {arch.requires_tools}")
+        print(f"Human Escalation: {arch.requires_escalation}")
+        print(f"Notes: {arch.notes}")
+        print()
 
-        for criterion, value in score.criteria_scores.items():
-            label = criteria_labels.get(criterion, criterion)
-            bar = "█" * int(value * 10) + "░" * (10 - int(value * 10))
-            print(f"   • {label:.<35} {bar} {value:.2f}")
+    if rec.assumptions:
+        print("-" * 70)
+        print("📋 ASSUMPTIONS")
+        print("-" * 70)
+        for assumption in rec.assumptions:
+            print(f"✓ {assumption}")
+        print()
 
-        print(f"\n   💡 {score.summary}")
+    if rec.risks:
+        print("-" * 70)
+        print("⚠️ IDENTIFIZIERTE RISIKEN")
+        print("-" * 70)
+        for risk in rec.risks:
+            print(f"⚠️ {risk}")
+        print()
 
-    print("\n" + "-" * 70)
+    print(f"Iterationen: {state.iteration_count}/2")
+    print("-" * 70)
 
 
 def print_menu() -> None:
     """Druckt das Hauptmenü."""
     print("\n" + "=" * 70)
-    print("🔧 Agentic AI Framework Advisor - Hauptmenü")
+    print("🤖 Framework Advisor - Multi-Agent LangGraph System")
     print("=" * 70)
     print("\nWie möchtest du einen Framework auswählen?")
     print()
@@ -94,6 +103,9 @@ def print_menu() -> None:
     print("  2️⃣  Geführte Beratung")
     print("      → Ich stelle dir gezielte Fragen für eine bessere Empfehlung")
     print()
+    print("  3️⃣  System Architektur anzeigen")
+    print("      → Zeige LangGraph Flow + ADK Agent Definitions")
+    print()
     print("  0️⃣  Beenden")
     print()
     print("=" * 70)
@@ -101,7 +113,7 @@ def print_menu() -> None:
 
 def get_user_choice() -> str:
     """Liest die Nutzereingabe."""
-    choice = input("Deine Wahl (1/2/0): ").strip().lower()
+    choice = input("Deine Wahl (1/2/3/0): ").strip().lower()
     return choice
 
 
@@ -109,15 +121,15 @@ def get_user_choice() -> str:
 # Beratungs-Modi
 # ============================================================================
 
-def quick_recommendation_flow(agent: FrameworkAdvisorAgent) -> None:
+def quick_recommendation_flow() -> None:
     """
     Schnelle Empfehlung: Der Nutzer gibt einen Use-Case ein,
-    erhält eine Framework-Empfehlung.
+    erhält eine Framework-Empfehlung via LangGraph Flow.
     """
     print_header("🚀 SCHNELLE EMPFEHLUNG")
 
     print("\nBeschreibe kurz, was du bauen möchtest:")
-    print("(z.B. 'Ich brauche eine Automation ohne Programmierung')")
+    print("(z.B. 'Ich brauche einen RAG-Agent für technische Fragen')")
     print()
 
     user_need = input("📝 Dein Use-Case: ").strip()
@@ -127,21 +139,33 @@ def quick_recommendation_flow(agent: FrameworkAdvisorAgent) -> None:
         return
 
     print()
-    print("🔍 Analysiere deine Anfrage...")
+    print("🔄 Starte 6-Agent LangGraph Flow...")
+    print("   RequirementsAgent → ProfilerAgent → UseCaseAnalyzer")
+    print("   → FrameworkAnalyzer → DecisionAgent → ControlAgent")
     print()
 
     try:
-        # Haupt-Empfehlung
-        match = agent.choose_framework(user_need)
-        print_recommendation(match)
+        # Führe LangGraph Flow aus
+        state = run_advisor_flow(user_need, verbose=True)
 
-        # Multi-Kriterien-Bewertung
-        multi_scores = agent.evaluate_frameworks_multi_criteria(user_need)
-        if multi_scores:
-            report = format_multi_score_report(multi_scores)
-            print(report)
+        # Drucke Empfehlung
+        print_recommendation(state)
 
-        print("\n✓ Empfehlung abgeschlossen.")
+        # Handle Loops falls nötig
+        if state.control_decision:
+            action_value = state.control_decision.action.value if hasattr(state.control_decision.action, 'value') else str(state.control_decision.action)
+            if action_value == "ask_user":
+                print("❓ Zusätzliche Frage für bessere Empfehlung:")
+                print(state.control_decision.user_question)
+                additional_input = input("📝 Deine Antwort: ").strip()
+                if additional_input:
+                    # Re-run mit zusätzlichem Input
+                    combined_input = f"{user_need}\n\nZusätzliche Info: {additional_input}"
+                    state = run_advisor_flow(combined_input, verbose=False)
+                    print_recommendation(state)
+
+        # Feedback sammeln
+        print_feedback_form(state)
 
     except Exception as e:
         print(f"❌ Fehler bei der Empfehlung: {e}")
@@ -149,10 +173,10 @@ def quick_recommendation_flow(agent: FrameworkAdvisorAgent) -> None:
         traceback.print_exc()
 
 
-def guided_advisory_flow(agent: FrameworkAdvisorAgent) -> None:
+def guided_advisory_flow() -> None:
     """
     Geführte Beratung: Ein strukturierter Fragebogen hilft dabei,
-    den besten Framework zu finden.
+    den besten Framework zu finden. Nutzt LangGraph Flow dahinter.
     """
     print_header("🎯 GEFÜHRTE BERATUNG")
 
@@ -200,145 +224,113 @@ def guided_advisory_flow(agent: FrameworkAdvisorAgent) -> None:
     except ValueError:
         no_code_importance = 3
 
-    # Frage 4: Multi-Agent/Orchestrierung Wichtigkeit
+    # Frage 4: Automation Level
     print("\n❓ Frage 4/6")
     print("-" * 70)
-    print("Wie wichtig ist Multi-Agent-Fähigkeit / Orchestrierung?")
-    print("(1 = nicht wichtig, 5 = sehr wichtig)")
-    multi_agent_importance = input("� Wert (1-5): ").strip()
-    try:
-        multi_agent_importance = int(multi_agent_importance)
-        if multi_agent_importance < 1 or multi_agent_importance > 5:
-            multi_agent_importance = 3
-    except ValueError:
-        multi_agent_importance = 3
+    print("Welche Art von Automatisierung brauchst du?")
+    print("  1) Q&A / Nur Informationen bereitstellen")
+    print("  2) Tool Actions / APIs aufrufen")
+    print("  3) Komplexe Workflows / Multi-Step Automatisierung")
+    automation_level = input("⚙️ Wähle (1-3): ").strip()
 
-    # Frage 5: Visuelle Workflows
+    automation_map = {
+        "1": "qa_only",
+        "2": "tool_actions",
+        "3": "workflow_automation"
+    }
+    automation_level = automation_map.get(automation_level, "qa_only")
+
+    # Frage 5: Enterprise
     print("\n❓ Frage 5/6")
     print("-" * 70)
-    print("Möchtest du visuelle Workflows (Drag & Drop Interface)?")
-    print("  j) Ja, sehr wichtig")
-    print("  n) Nein, nicht nötig")
-    visual_workflows = input("🎨 Deine Wahl (j/n): ").strip().lower()
-    visual_workflows_text = "Ja" if visual_workflows in ["j", "yes", "y"] else "Nein"
+    enterprise = input("🏢 Enterprise Features erforderlich? (j/n): ").strip().lower() == "j"
 
-    # Frage 6: Deployment-Ziel
+    # Frage 6: Budget/Constraints
     print("\n❓ Frage 6/6")
     print("-" * 70)
-    print("Wo soll die Lösung laufen?")
-    print("  1) Cloud (AWS, GCP, Azure)")
-    print("  2) On-Premise (eigene Server)")
-    print("  3) Egal / Flexibel")
-    deployment = input("☁️  Wähle (1-3): ").strip()
+    constraints = input("⛓️ Constraints (z.B. GDPR, Real-Time, Cost-Effective): ").strip()
 
-    deployment_map = {
-        "1": "Cloud (AWS, GCP, Azure)",
-        "2": "On-Premise (eigene Server)",
-        "3": "Egal / Flexibel"
-    }
-    deployment = deployment_map.get(deployment, "Egal / Flexibel")
-
-    # Zusammenfassung bauen
-    print("\n" + "=" * 70)
-    print("📋 Zusammenfassung deiner Anforderungen")
-    print("=" * 70)
-    print(f"Use-Case: {use_case}")
-    print(f"Technischer Hintergrund: {tech_background}")
-    print(f"No-Code/Low-Code Wichtigkeit: {no_code_importance}/5")
-    print(f"Multi-Agent/Orchestrierung Wichtigkeit: {multi_agent_importance}/5")
-    print(f"Visuelle Workflows gewünscht: {visual_workflows_text}")
-    print(f"Deployment-Ziel: {deployment}")
-    print("=" * 70)
-
-    # Reichhaltigen user_need String bauen
-    user_need = f"""
-Use-Case:
-{use_case}
-
-Nutzerprofil:
-- Technischer Hintergrund: {tech_background}
-- Wichtigkeit No-Code/Low-Code (1-5): {no_code_importance}
-- Wichtigkeit Multi-Agent/Orchestrierung (1-5): {multi_agent_importance}
-- Wunsch nach visuellen Workflows: {visual_workflows_text}
-- Ziel-Plattform / Deployment: {deployment}
+    # Kombiniere zu Input für LangGraph
+    full_input = f"""
+Use Case: {use_case}
+Technical Background: {tech_background}
+No-Code Importance: {no_code_importance}/5
+Automation Level: {automation_level}
+Enterprise Needed: {enterprise}
+Constraints: {constraints if constraints else 'None'}
 """
 
-    print("\n🔍 Analysiere deine Anforderungen...")
+    print()
+    print("🔄 Starte LangGraph Flow mit Antworten...")
     print()
 
     try:
-        # Haupt-Empfehlung
-        match = agent.choose_framework(user_need)
-        print_recommendation(match)
-
-        # Multi-Kriterien-Bewertung
-        multi_scores = agent.evaluate_frameworks_multi_criteria(user_need)
-        if multi_scores:
-            print_multi_criteria_summary(multi_scores)
-
-        print("\n✓ Beratung abgeschlossen.")
+        state = run_advisor_flow(full_input, verbose=True)
+        print_recommendation(state)
+        print_feedback_form(state)
 
     except Exception as e:
-        print(f"❌ Fehler bei der Beratung: {e}")
+        print(f"❌ Fehler: {e}")
         import traceback
         traceback.print_exc()
 
 
+def print_feedback_form(state) -> None:
+    """Sammelt Feedback nach einer Session."""
+    print()
+    print("=" * 70)
+    print("📝 FEEDBACK")
+    print("=" * 70)
+
+    rating = input("Wie hilfreich war die Empfehlung? (1-5): ").strip()
+    try:
+        rating = int(rating)
+        if rating < 1 or rating > 5:
+            rating = 3
+    except ValueError:
+        rating = 3
+
+    helpful = input("Würdest du diese Empfehlung verwenden? (j/n): ").strip().lower() == "j"
+
+    comment = input("Kommentar (optional, Enter zum überspringen): ").strip()
+
+    feedback = SessionFeedback(
+        rating=rating,
+        helpful=helpful,
+        comment=comment if comment else None,
+        session_id=state.session_id
+    )
+
+    store = FeedbackStore()
+    store.save_feedback(feedback)
+
+    print()
+    print("✓ Feedback gespeichert! Danke für dein Input.")
+
+
 # ============================================================================
-# Hauptfunktion
+# Main Entry Point
 # ============================================================================
 
 def main() -> None:
-    """
-    Hauptfunktion des Framework Advisors.
-
-    - Agent initialisieren
-    - Wissensbasis füllen
-    - Menü-Loop für Benutzerinteraktion
-    """
-    print("=" * 70)
-    print("🔧 Agentic AI Framework Advisor")
-    print("=" * 70)
-    print()
-
-    # Agent initialisieren
-    try:
-        agent = FrameworkAdvisorAgent()
-    except RuntimeError as e:
-        print(f"❌ Fehler beim Initialisieren des Agenten: {e}")
-        return
-
-    # Wissensbasis füllen (nur einmalig nötig)
-    # Auskommentieren nach der ersten Ausführung, wenn die DB schon gefüllt ist:
-    try:
-        agent.seed_basic_framework_knowledge()
-        print("✓ Wissensbasis geladen")
-        print()
-    except Exception as e:
-        print(f"⚠ Warnung: Fehler beim Laden der Seed-Daten: {e}")
-        print("  Die bestehende Wissensbasis wird verwendet.")
-        print()
-
-    # Menü-Loop
+    """Hauptfunktion - CLI Loop."""
     while True:
         print_menu()
         choice = get_user_choice()
 
-        if choice in ["0", "q", "quit", "exit", "beenden"]:
-            print("\n👋 Auf Wiedersehen! Viel Erfolg mit deinem Framework!")
-            break
-
-        elif choice == "1":
-            quick_recommendation_flow(agent)
-            input("\n[Drücke Enter um ins Menü zurückzukehren]")
-
+        if choice == "1":
+            quick_recommendation_flow()
         elif choice == "2":
-            guided_advisory_flow(agent)
-            input("\n[Drücke Enter um ins Menü zurückzukehren]")
-
+            guided_advisory_flow()
+        elif choice == "3":
+            print_flow_architecture()
+            print("\n")
+            print_adk_agent_definitions()
+        elif choice == "0":
+            print("\n👋 Auf Wiedersehen!\n")
+            break
         else:
-            print("\n❌ Ungültige Eingabe. Bitte wähle 0, 1 oder 2.")
-            input("\n[Drücke Enter um weiterzumachen]")
+            print("\n❌ Ungültige Eingabe. Bitte versuche es erneut.\n")
 
 
 if __name__ == "__main__":
